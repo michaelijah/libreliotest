@@ -1,0 +1,6 @@
+$out_root/
+{
+  include libreliotest/
+}
+
+export $out_root/libreliotest/$import.target

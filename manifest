@@ -1,0 +1,14 @@
+: 1
+name: libreliotest
+version: 0.1.0-a.0.z
+language: c++
+summary: reliotest C++ library
+license: other: proprietary ; Not free/open source.
+description-file: README.md
+url: https://example.org/libreliotest
+email: michaelijah@gmail.com
+#build-error-email: michaelijah@gmail.com
+depends: * build2 >= 0.16.0
+depends: * bpkg >= 0.16.0
+#depends: libhello ^1.0.0
+depends: doctest ^2.4.10

@@ -1,0 +1,7 @@
+project = libreliotest
+
+using version
+using config
+using test
+using install
+using dist
