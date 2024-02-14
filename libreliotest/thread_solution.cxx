@@ -154,7 +154,7 @@ TEST_CASE("Run Threaded Solution")
             );
 
     //getting the futures actually "does" the tasks. 
-    //Let's do all the reading tasks first
+    //Let's do chunk concatenation tasks here
     for(auto& future : future_writes)
         future.get();
 
