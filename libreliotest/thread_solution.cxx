@@ -55,7 +55,7 @@ struct read_input_reverse_lines_into_chunks
 
 struct concatenate_chunks_into_output_file
 {
-    void operator()(size_t total_num_chunks)
+    void operator()(const size_t &total_num_chunks)
     {
         //Lets concatenate all of the chunks into our threaded solution output
         std::ofstream output_file("threaded_solution_output.txt", std::ios::out );
@@ -91,8 +91,7 @@ TEST_CASE("Run Threaded Solution")
     threaded_moonshot test_object("input.txt","threaded_solution_output.txt");
 
     const size_t thread_count = test_object.pool.get_num_threads();
-    const size_t max_number_lines_in_file = test_object.lines_in_file;
-    const size_t chunk_size = 1000000; //Number of lines to read per task
+    const size_t chunk_size = test_object.lines_in_file / (thread_count); //Number of lines to read per task
     const size_t remainder = test_object.lines_in_file % chunk_size;
     const size_t num_whole_chunks = test_object.lines_in_file / chunk_size;
     const size_t total_num_chunks = (remainder > 0) ? num_whole_chunks + 1 : num_whole_chunks;
@@ -104,38 +103,23 @@ TEST_CASE("Run Threaded Solution")
     //Schedule reading the chunks by submitting jobs to our threadpool
     //Each job is given:
     //   "start at this line",
-    //   "how many lines should be read in",
+    //   "how many lines should we attempt to read in",
     //   and "what's the current chunk this job is working on"
-    size_t current_number_of_lines_read = 0;
-    size_t chunksreadin = 0;
-    while(chunksreadin < num_whole_chunks)
+    size_t current_line_to_read = 0;
+    size_t num_chunks_read = 0;
+    while(num_chunks_read < total_num_chunks)
     {
         future_reads.push_back( 
                 test_object.pool.submit(
-                        [current_number_of_lines_read, chunk_size, chunksreadin]{
+                        [current_line_to_read, chunk_size, num_chunks_read]{
                             auto obj = read_input_reverse_lines_into_chunks();
-                            obj(current_number_of_lines_read,chunk_size,chunksreadin);
+                            obj(current_line_to_read,chunk_size,num_chunks_read);
                         }
                     )
                 );
-        current_number_of_lines_read += chunk_size;
-        ++chunksreadin;
+        current_line_to_read += chunk_size;
+        ++num_chunks_read;
     }
-
-    //I'm sure theres a better way to do this. maybe Do-while or modify the above while loop
-    if(remainder > 0)
-    {
-        future_reads.push_back( 
-                test_object.pool.submit(
-                        [current_number_of_lines_read, remainder, chunksreadin]{
-                            auto obj = read_input_reverse_lines_into_chunks();
-                            obj(current_number_of_lines_read,remainder,chunksreadin);
-                        }
-                    )
-                );
-    }
-
-
 
     //getting the futures actually "does" the tasks. 
     //Let's do all the reading tasks first
@@ -147,8 +131,8 @@ TEST_CASE("Run Threaded Solution")
     future_writes.push_back( 
             test_object.pool.submit(
                 [=]{
-                auto obj = concatenate_chunks_into_output_file();
-                obj(total_num_chunks);
+                    auto obj = concatenate_chunks_into_output_file();
+                    obj(total_num_chunks);
                 }
                 )
             );
