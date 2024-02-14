@@ -12,13 +12,12 @@ DOCTEST_MAKE_STD_HEADERS_CLEAN_FROM_WARNINGS_ON_WALL_END
 using namespace reliotest;
 using namespace std;
 
-//template<typename filenametype, typename startpostype, typename chunksizetype>
-struct read_input_file_chunk_into_buffer
+struct read_input_reverse_lines_into_chunks
 {
-
 
     void operator() (const size_t &startline,const size_t &chunksize, const size_t &chunknumber)
     {
+        //open the input file in it's own thread dependent ifstream
         ifstream inputfile("input.txt");
         if(!inputfile.is_open()){
             std::cerr << "couldnt open input file" << endl;
@@ -26,6 +25,7 @@ struct read_input_file_chunk_into_buffer
         }
 
 
+        //name the chunk temporary file based on chunk currently being processed by this functor
         string chunkfilename = "chunk" + std::to_string(chunknumber);
         std::ofstream chunkfilestream(chunkfilename, std::ios::out );
         if(!chunkfilestream.is_open()){
@@ -34,24 +34,51 @@ struct read_input_file_chunk_into_buffer
         }
 
         string line;
-        size_t endline = startline + chunksize;
         size_t currentline = 0;
 
-
-        //cout << "currentline is " << currentline << endl;
-        //cout << "startline is " << startline << endl;
-        //cout << "endline is " << endline << endl;
         while(currentline < startline && getline(inputfile,line))
         {
+            //skip ahead until our "read" position matches the requested startline
             ++currentline;
         }
 
-        size_t stringelem = 0;
+        size_t endline = startline + chunksize;
         while(currentline < endline  && getline(inputfile,line))
         {
             std::reverse(line.begin(),line.end());
             chunkfilestream << line << endl;
             ++currentline;
+        }
+
+    };
+};
+
+struct concatenate_chunks_into_output_file
+{
+    void operator()(size_t total_num_chunks)
+    {
+        //Lets concatenate all of the chunks into our threaded solution output
+        std::ofstream output_file("threaded_solution_output.txt", std::ios::out );
+        if(!output_file.is_open()){
+            std::cerr << "couldnt open output file" << endl;
+            return;
+        }
+
+        for(size_t chunkedfilenumber = 0; chunkedfilenumber < total_num_chunks ; ++chunkedfilenumber)
+        {
+            string filename = "chunk" + std::to_string(chunkedfilenumber);
+            std::ifstream chunkfilestream(filename,std::ios::binary);
+            if(!chunkfilestream.is_open()){
+                std::cerr << "couldnt open " << filename << " file" << endl;
+                output_file << "***couldnt open " << filename << "***" <<  endl; //embed error in output
+                continue; //allow continuation in the event of errors
+            }
+
+            //Efficiently append the chunk's contents into the output_file
+            output_file << chunkfilestream.rdbuf();
+            //Close the chunk file so that we can reuse the ifstream obj
+            chunkfilestream.close();
+
         }
 
     };
@@ -65,12 +92,13 @@ TEST_CASE("Run Threaded Solution")
 
     const size_t thread_count = test_object.pool.get_num_threads();
     const size_t max_number_lines_in_file = test_object.lines_in_file;
-    size_t chunk_size = 1000000; //Number of lines to read per task
+    const size_t chunk_size = 1000000; //Number of lines to read per task
     const size_t remainder = test_object.lines_in_file % chunk_size;
     const size_t num_whole_chunks = test_object.lines_in_file / chunk_size;
     const size_t total_num_chunks = (remainder > 0) ? num_whole_chunks + 1 : num_whole_chunks;
 
-    std::vector<std::future<void>> futures;
+    std::vector<std::future<void>> future_reads;
+    std::vector<std::future<void>> future_writes;
 
 
     //Schedule reading the chunks by submitting jobs to our threadpool
@@ -82,10 +110,10 @@ TEST_CASE("Run Threaded Solution")
     size_t chunksreadin = 0;
     while(chunksreadin < num_whole_chunks)
     {
-        futures.push_back( 
+        future_reads.push_back( 
                 test_object.pool.submit(
                         [current_number_of_lines_read, chunk_size, chunksreadin]{
-                            auto obj = read_input_file_chunk_into_buffer();
+                            auto obj = read_input_reverse_lines_into_chunks();
                             obj(current_number_of_lines_read,chunk_size,chunksreadin);
                         }
                     )
@@ -97,10 +125,10 @@ TEST_CASE("Run Threaded Solution")
     //I'm sure theres a better way to do this. maybe Do-while or modify the above while loop
     if(remainder > 0)
     {
-        futures.push_back( 
+        future_reads.push_back( 
                 test_object.pool.submit(
                         [current_number_of_lines_read, remainder, chunksreadin]{
-                            auto obj = read_input_file_chunk_into_buffer();
+                            auto obj = read_input_reverse_lines_into_chunks();
                             obj(current_number_of_lines_read,remainder,chunksreadin);
                         }
                     )
@@ -110,33 +138,25 @@ TEST_CASE("Run Threaded Solution")
 
 
     //getting the futures actually "does" the tasks. 
-    for(auto& future : futures)
+    //Let's do all the reading tasks first
+    for(auto& future : future_reads)
         future.get();
 
 
-    //Lets concatenate all of the chunks into our threaded solution output
-    std::ofstream output_file("threaded_solution_output.txt", std::ios::out );
-    if(!output_file.is_open()){
-        std::cerr << "couldnt open output file" << endl;
-        return;
-    }
+    //submit a concatenation job to the thread pool
+    future_writes.push_back( 
+            test_object.pool.submit(
+                [=]{
+                auto obj = concatenate_chunks_into_output_file();
+                obj(total_num_chunks);
+                }
+                )
+            );
 
-    for(size_t chunkedfilenumber = 0; chunkedfilenumber < total_num_chunks ; ++chunkedfilenumber)
-    {
-        string filename = "chunk" + std::to_string(chunkedfilenumber);
-        std::ifstream chunkfilestream(filename,std::ios::binary);
-        if(!chunkfilestream.is_open()){
-            std::cerr << "couldnt open " << filename << " file" << endl;
-            output_file << "***couldnt open " << filename << "***" <<  endl; //embed error in output
-            continue; //allow continuation in the event of errors
-        }
-
-        //Efficiently append the chunk's contents into the output_file
-        output_file << chunkfilestream.rdbuf();
-        //Close the chunk file so that we can reuse the ifstream obj
-        chunkfilestream.close();
-
-    }
+    //getting the futures actually "does" the tasks. 
+    //Let's do all the reading tasks first
+    for(auto& future : future_writes)
+        future.get();
 
 }
 TEST_SUITE_END();
