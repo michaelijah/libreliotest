@@ -38,7 +38,8 @@ namespace reliotest
 
             thread_pool() : done(false), joiner(threads)
             {
-                unsigned int const thread_count = std::thread::hardware_concurrency();
+                unsigned int const supported_num_of_threads =  std::thread::hardware_concurrency();
+                unsigned int const thread_count = (supported_num_of_threads <= 0) ? 12 : supported_num_of_threads;
                 threads.reserve(thread_count);
 
                 //std::cout << "thread_count " << thread_count << std::endl;

@@ -8,36 +8,42 @@
 #include <thread>
 #include <atomic>
 #include <future>
+#include <shared_mutex>
 #include <libreliotest/thread_pool.hxx>
 
 
 namespace reliotest
 {
     using namespace std;
-    struct threaded_moonshot
+
+    struct taskinfo
     {
         string inputfilename;
-        size_t lines_in_file;
+        shared_mutex inputfilemutex;
         string outputfilename;
+        shared_mutex outputfilemutex;
+        size_t thread_count;
+        size_t lines_in_file;
+        size_t chunk_size; //Number of lines to read per task
+        size_t remainder;
+        size_t num_whole_chunks;
+        size_t total_num_chunks;
 
+        taskinfo(string in_name, string out_name,size_t available_threads_for_task) :
+        inputfilename(in_name),outputfilename(out_name),thread_count(available_threads_for_task){};
 
+       void initialize_task_data() {
+            chunk_size = lines_in_file / thread_count; //Number of lines to read per task
+            remainder = lines_in_file % chunk_size;
+            num_whole_chunks = lines_in_file / chunk_size;
+            total_num_chunks = (remainder > 0) ? num_whole_chunks + 1 : num_whole_chunks;
+        };
+    };
+
+    struct threaded_moonshot
+    {
         thread_pool pool;
 
-        threaded_moonshot(string in_name, string out_name) : inputfilename(in_name),outputfilename(out_name)
-        {
-            //Let's find out how many lines our input file has. That way we can divide read in work between threads
-            ifstream input_file(inputfilename, std::ios::in);
-            lines_in_file = 0; 
-            string unused;
-            while (getline (input_file, unused))
-                ++lines_in_file;
-
-            //Open the output file, "erase it" and write the change to the file
-            //I'm not sure if this works or is even necessary lol
-            ofstream output_file(outputfilename, std::ios::out | std::ios::trunc);
-            output_file.seekp(0);
-            output_file.write("",1);
-
-        };
+        threaded_moonshot() {};
     };
 };
