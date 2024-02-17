@@ -12,10 +12,15 @@ namespace reliotest
     {
         private:
             //Remember Class Members are ctor/dtor like a stack
-            std::atomic_bool done;
+
+            //Things that signal  between threads should be deleted last
+            std::atomic_bool done; 
+            //Threads can be deleted after the work_queue is emptied and dtor'd
             std::vector<thread> threads;
+            //work queue should only be destroyed after the joiner join all threads.
             thread_safe_queue<function_wrapper> work_queue;
-            thread_joiner joiner;
+            //The joiner should fire first to give threads an opportunity to join
+            thread_joiner joiner; 
 
             void worker_thread()
             {
