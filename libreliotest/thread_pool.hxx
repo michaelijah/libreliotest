@@ -11,14 +11,14 @@ namespace reliotest
     class thread_pool
     {
         private:
+            //Remember Class Members are ctor/dtor like a stack
             std::atomic_bool done;
             std::vector<thread> threads;
-            thread_joiner joiner;
             thread_safe_queue<function_wrapper> work_queue;
+            thread_joiner joiner;
 
             void worker_thread()
             {
-                //cout << "pushback succeeded" << endl;
 
                 while(!done)
                 {
@@ -42,12 +42,10 @@ namespace reliotest
                 unsigned int const thread_count = (supported_num_of_threads <= 0) ? 12 : supported_num_of_threads;
                 threads.reserve(thread_count);
 
-                //std::cout << "thread_count " << thread_count << std::endl;
                 try
                 {
                     for(unsigned int i=0; i < thread_count; ++i)
                     {
-                        //cout << "try pushing back a thread" << endl;
                         threads.push_back(std::thread(&thread_pool::worker_thread,this));
                     }
                 }
