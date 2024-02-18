@@ -12,11 +12,13 @@ DOCTEST_MAKE_STD_HEADERS_CLEAN_FROM_WARNINGS_ON_WALL_END
 using namespace reliotest;
 using namespace std;
 
-struct read_number_of_lines_input_file
+struct preread_input_and_set_task_data
 {
     void operator() (std::unique_ptr<taskinfo>& ti)
     {
         //Let's find out how many lines our input file has. That way we can divide read in work between threads
+
+        //Don't allow simultaneous prereads/reads of the files that share the same taskinfo object
         std::unique_lock<shared_mutex> lock(ti->inputfilemutex);
         ifstream input_file(ti->inputfilename, std::ios::in);
         ti->lines_in_file = 0; 
@@ -45,15 +47,15 @@ struct read_input_reverse_lines_into_chunks
     void operator() (const size_t &startline,const size_t &chunknumber, const std::unique_ptr<taskinfo>& ti)
     {
         //open the input file in it's own thread dependent ifstream
-        ifstream inputfile("input.txt");
+        ifstream inputfile(ti->inputfilename);
         if(!inputfile.is_open()){
             std::cerr << "couldnt open input file" << endl;
             return;
         }
 
 
-        //name the chunk temporary file based on chunk currently being processed by this functor
-        string chunkfilename = "chunk" + std::to_string(chunknumber);
+        //name the chunk temporary file based on outputfilename and chunknumber currently being processed by this functor
+        string chunkfilename = "chunk" + ti->outputfilename + std::to_string(chunknumber);
         std::ofstream chunkfilestream(chunkfilename, std::ios::out );
         if(!chunkfilestream.is_open()){
             std::cerr << "couldnt open " << chunkfilename << " file" << endl;
@@ -83,18 +85,18 @@ struct read_input_reverse_lines_into_chunks
 
 struct concatenate_chunks_into_output_file
 {
-    void operator()(const size_t &total_num_chunks)
+    void operator()(const std::unique_ptr<taskinfo>& ti)
     {
         //Lets concatenate all of the chunks into our threaded solution output
-        std::ofstream output_file("threaded_solution_output.txt", std::ios::out );
+        std::ofstream output_file(ti->outputfilename, std::ios::out );
         if(!output_file.is_open()){
             std::cerr << "couldnt open output file" << endl;
             return;
         }
 
-        for(size_t chunkedfilenumber = 0; chunkedfilenumber < total_num_chunks ; ++chunkedfilenumber)
+        for(size_t chunkedfilenumber = 0; chunkedfilenumber < ti->total_num_chunks; ++chunkedfilenumber)
         {
-            string filename = "chunk" + std::to_string(chunkedfilenumber);
+            string filename = "chunk" + ti->outputfilename + std::to_string(chunkedfilenumber);
             std::ifstream chunkfilestream(filename,std::ios::binary);
             if(!chunkfilestream.is_open()){
                 std::cerr << "couldnt open " << filename << " file" << endl;
@@ -120,20 +122,31 @@ TEST_CASE("Run Threaded Solution")
 
     //create functor
     std::vector<unique_ptr<taskinfo>> task_info_list;
-    task_info_list.reserve(1);
-    task_info_list.push_back(make_unique<taskinfo>("input.txt","threaded_solution_output.txt", thread_count));
+    task_info_list.reserve(2);
+    task_info_list.push_back(make_unique<taskinfo>("input.txt","threaded_output1.txt", thread_count));
+    task_info_list.push_back(make_unique<taskinfo>("input.txt","threaded_output2.txt", thread_count));
 
 
+
+    std::vector<std::future<void>> future_prereads;
+    future_prereads.reserve(task_info_list.size());
 
     std::vector<std::future<void>> future_reads;
+    size_t num_of_future_reads = 0;
+    for(const auto & ti : task_info_list)
+        num_of_future_reads += ti->total_num_chunks;
+    future_reads.reserve(num_of_future_reads);
+
+
     std::vector<std::future<void>> future_writes;
+    future_writes.reserve(task_info_list.size());
 
     for(auto & ti: task_info_list)
     {
-        future_reads.push_back( 
+        future_prereads.push_back( 
                 test_object.pool.submit(
                         [&ti]{
-                            auto obj = read_number_of_lines_input_file();
+                            auto obj = preread_input_and_set_task_data();
                             obj(ti);
                         }
                     )
@@ -142,11 +155,10 @@ TEST_CASE("Run Threaded Solution")
 
 
     //getting the futures actually "does" the tasks. 
-    //Let's do all the reading tasks first
-    for(auto& future : future_reads)
+    //Let's do all the prereading tasks first
+    for(auto& future : future_prereads)
         future.get();
-
-    future_reads.clear();
+    future_prereads.clear();
 
 
     //Schedule reading the chunks by submitting jobs to our threadpool
@@ -191,7 +203,7 @@ TEST_CASE("Run Threaded Solution")
                 test_object.pool.submit(
                     [&ti]{
                         auto obj = concatenate_chunks_into_output_file();
-                        obj(ti->total_num_chunks);
+                        obj(ti);
                     }
                     )
                 );
